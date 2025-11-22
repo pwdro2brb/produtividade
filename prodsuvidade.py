@@ -60,6 +60,7 @@ try:
   driver.maximize_window()
   wait = WebDriverWait(driver, WAIT_TIME)
 
+  '''  
   # ==============================================================================
   # PARTE 1: PODIO
   # ==============================================================================
@@ -124,7 +125,7 @@ try:
   wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "li.navigation-link.inbox"))).click()
 
   time.sleep(10)
-
+  
   wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "a.PodioUI__Notifications__NotificationGroup"))).click()
   wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'field-type-text')]"))) 
   wait.until(EC.element_to_be_clickable((By.LINK_TEXT, "Mensageria - Última vista usada.xlsx"))).click()
@@ -205,11 +206,118 @@ try:
   
   print("E-mail Agilis enviado com sucesso!")
   time.sleep(5)
+  '''
+  # ==============================================================================
+  # PARTE 3: BÚSSOLA MRV
+  # ==============================================================================
+  print("\n=== INICIANDO PARTE 3: BÚSSOLA MRV ===")
+  
+  # 1. Acessar o Site
+  driver.get("http://bussola.mrv.com.br/Main/Big.aspx")
+  print("Acessando Bússola...")
+
+  # -- Lógica de Login (Caso peça novamente, embora deva aproveitar o SSO) --
+  try:
+    # Se aparecer botão de login da Microsoft, clica
+    btn_login_bussola = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Login')]")))
+    btn_login_bussola.click()
+    fazer_login_microsoft(driver, wait, EMAIL_USER, SENHA_USER)
+  except TimeoutException:
+    print("Já logado ou botão de login não necessário.")
+
+  # 2. Clicar na Pasta "Administrativo" (Imagem 1)
+  print("Procurando pasta 'Administrativo'...")
+  # O seletor busca um SPAN ou DIV que contenha o texto exato
+  pasta_adm = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(text(), 'Administrativo')]")))
+  pasta_adm.click()
+  time.sleep(2) # Espera a lista da direita carregar
+
+  # 3. Clicar no Relatório "Relatório Protocolo de Pagamento MRV PAG" (Imagem 2)
+  print("Selecionando o relatório...")
+  # Busca na tabela da direita pelo texto do relatório
+  relatorio_link = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(), 'Relatório Protocolo de Pagamento MRV PAG')]")))
+  relatorio_link.click()
+  
+  # --- MUDANÇA DE JANELA ---
+  # O relatório abre em um Pop-up (URL report2.mrv...). Precisamos focar nele.
+  print("Aguardando nova janela do relatório...")
+  wait.until(EC.number_of_windows_to_be(2)) # Agora deve ter 2 janelas (Bussola + Relatório)
+  
+  janela_bussola = driver.current_window_handle
+  janelas = driver.window_handles
+  # Troca para a última janela aberta (a nova)
+  driver.switch_to.window(janelas[-1])
+  print(f"Foco mudado para o relatório: {driver.title}")
+
+  # 4. Preencher Parâmetros (Datas) (Imagem 3)
+  # Vamos calcular o primeiro e último dia do mês passado automaticamente
+  from datetime import date, timedelta
+  hoje = date.today()
+  primeiro_dia_deste_mes = hoje.replace(day=1)
+  ultimo_dia_mes_passado = primeiro_dia_deste_mes - timedelta(days=1)
+  primeiro_dia_mes_passado = ultimo_dia_mes_passado.replace(day=1)
+  
+  str_inicio = primeiro_dia_mes_passado.strftime("%d/%m/%Y")
+  str_fim = ultimo_dia_mes_passado.strftime("%d/%m/%Y")
+  print(f"Preenchendo datas: {str_inicio} a {str_fim}")
+
+  # Como os IDs do ReportViewer são feios e mudam, vamos procurar pelos Inputs de texto
+  # Geralmente são os primeiros inputs do tipo texto na página de parâmetros
+  inputs_data = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "input[type='text']")))
+  
+  if len(inputs_data) >= 2:
+    # Limpa e preenche Data Início
+    inputs_data[0].clear()
+    inputs_data[0].send_keys(str_inicio)
+    time.sleep(0.5)
+    
+    # Limpa e preenche Data Fim
+    inputs_data[1].clear()
+    inputs_data[1].send_keys(str_fim)
+  else:
+    print("AVISO: Não encontrei os campos de data padrão. Tentando via XPath específico.")
+    # Tentativa secundária caso o CSS simples falhe
+    driver.find_element(By.XPATH, "//div[contains(text(), 'inicio')]/following::input[1]").send_keys(str_inicio)
+    driver.find_element(By.XPATH, "//div[contains(text(), 'final')]/following::input[1]").send_keys(str_fim)
+
+  # O Status já vem como "Selecionar Tudo" por padrão na imagem, então não vamos mexer.
+
+  # 5. Clicar em "Exibir Relatório"
+  print("Gerando relatório...")
+  btn_exibir = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "input[value='Exibir Relatório']")))
+  btn_exibir.click()
+
+  # 6. Exportar para Excel (Imagem 4)
+  print("Aguardando processamento do relatório (pode demorar)...")
+  
+  # O ícone de salvar (disquete) só aparece quando o relatório carrega.
+  # O ID costuma conter 'ExportDrop', mas o title é mais seguro.
+  try:
+    # Espera o ícone do disquete aparecer (title geralmente é 'Exportar' ou 'Export')
+    botao_exportar = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[@title='Exportar menu suspenso'] | //img[@alt='Exportar'] | //a[contains(@id, 'Export')]")))
+    botao_exportar.click()
+    
+    print("Menu de exportação aberto. Selecionando Excel...")
+    # Clica na opção "Excel" no menu que abriu
+    opcao_excel = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[@title='Excel'] | //a[text()='Excel']")))
+    opcao_excel.click()
+    
+    print("Download Bússola iniciado!")
+    time.sleep(10) # Tempo para o download acontecer
+
+  except TimeoutException:
+    print("Erro: O relatório demorou muito ou o botão de exportar não foi encontrado.")
+    driver.save_screenshot("erro_bussola_export.png")
+
+  # Opcional: Fechar a janela do relatório e voltar para a principal
+  # driver.close()
+  # driver.switch_to.window(janela_bussola)
 
 except Exception as e:
-  print(f"\nCRITICAL ERROR: {e}")
-  driver.save_screenshot("erro_recente.png")
+  print(f"\nCRITICAL ERROR NA PARTE 3 (BÚSSOLA): {e}")
+  driver.save_screenshot("erro_bussola.png")
 
 finally:
-  print("Fim.")
+  print("Script Completo Finalizado.")
   # driver.quit()
+  print("Fim.")
